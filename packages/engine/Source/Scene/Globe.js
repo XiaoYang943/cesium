@@ -1173,23 +1173,50 @@ Globe.prototype.getVectorTerrainSurfaceSnapshot = function (frameState) {
     const sphere = mesh.boundingSphere3D;
     meshes.push({
       key: `${provider}/${vectorTerrainIdentity(mesh)}/${vectorTerrainIdentity(mesh.vertices)}/${exaggeration}/${relativeHeight}`,
-      level: tile.level, kind: tile.data.vertexArray ? "terrain" : "fill",
-      bounds: [rectangle.west * degrees, rectangle.south * degrees,
-        rectangle.east * degrees, rectangle.north * degrees],
-      minimumHeight: (mesh.minimumHeight - relativeHeight) * exaggeration + relativeHeight,
-      maximumHeight: (mesh.maximumHeight - relativeHeight) * exaggeration + relativeHeight,
-      sphere: [sphere.center.x, sphere.center.y, sphere.center.z, sphere.radius +
-        Math.max(Math.abs((mesh.minimumHeight - relativeHeight) * (exaggeration - 1)),
-          Math.abs((mesh.maximumHeight - relativeHeight) * (exaggeration - 1)))],
-      vertexCount: mesh.vertexCountWithoutSkirts ?? mesh.vertices.length / encoding.stride,
-      indexCount: mesh.indexCountWithoutSkirts ?? mesh.indices.length, indices: mesh.indices,
-      position: (index, result) => encoding.getExaggeratedPosition(mesh.vertices, index, result),
-      coordinate: (index, result) => encoding.decodeTextureCoordinates(mesh.vertices, index, result),
+      level: tile.level,
+      kind: tile.data.vertexArray ? "terrain" : "fill",
+      bounds: [
+        rectangle.west * degrees,
+        rectangle.south * degrees,
+        rectangle.east * degrees,
+        rectangle.north * degrees,
+      ],
+      minimumHeight:
+        (mesh.minimumHeight - relativeHeight) * exaggeration + relativeHeight,
+      maximumHeight:
+        (mesh.maximumHeight - relativeHeight) * exaggeration + relativeHeight,
+      sphere: [
+        sphere.center.x,
+        sphere.center.y,
+        sphere.center.z,
+        sphere.radius +
+          Math.max(
+            Math.abs(
+              (mesh.minimumHeight - relativeHeight) * (exaggeration - 1),
+            ),
+            Math.abs(
+              (mesh.maximumHeight - relativeHeight) * (exaggeration - 1),
+            ),
+          ),
+      ],
+      vertexCount:
+        mesh.vertexCountWithoutSkirts ?? mesh.vertices.length / encoding.stride,
+      indexCount: mesh.indexCountWithoutSkirts ?? mesh.indices.length,
+      indices: mesh.indices,
+      position: (index, result) =>
+        encoding.getExaggeratedPosition(mesh.vertices, index, result),
+      coordinate: (index, result) =>
+        encoding.decodeTextureCoordinates(mesh.vertices, index, result),
     });
   }
-  return {version: 1, frame: frameState.frameNumber, provider,
+  return {
+    version: 1,
+    frame: frameState.frameNumber,
+    provider,
     exaggeration: frameState.verticalExaggeration,
-    relativeHeight: frameState.verticalExaggerationRelativeHeight, meshes};
+    relativeHeight: frameState.verticalExaggerationRelativeHeight,
+    meshes,
+  };
 };
 
 export default Globe;

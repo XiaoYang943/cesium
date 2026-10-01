@@ -411,7 +411,11 @@ View.prototype.createPotentiallyVisibleSet = function (scene) {
 
   // Ordered vector commands affect depth-range fitting, but never enter the
   // ordinary opaque/translucent bins (which would reorder or duplicate them).
-  if (frameState.passes.render && !frameState.passes.pick && !frameState.passes.depth) {
+  if (
+    frameState.passes.render &&
+    !frameState.passes.pick &&
+    !frameState.passes.depth
+  ) {
     for (const stage of frameState.vectorRenderStages) {
       stage.forEachCommand(function (command) {
         if (!scene.isVisible(cullingVolume, command, occluder)) {

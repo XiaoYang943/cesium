@@ -21,13 +21,24 @@ const discardRegex = /\bdiscard\b/;
  * analytic vectors. Clamp only spuriously foreground depth to the ellipsoid, keeping skirts/color and
  * all model/terrain depth tests intact. Scene must exclude real terrain providers.
  */
-DerivedCommand.createVectorEllipsoidDepthCommand = function (command, context, ellipsoid, cameraPosition, result) {
+DerivedCommand.createVectorEllipsoidDepthCommand = function (
+  command,
+  context,
+  ellipsoid,
+  cameraPosition,
+  result,
+) {
   result = result ?? {};
   const source = command.shaderProgram;
-  let shader = context.shaderCache.getDerivedShaderProgram(source, "vectorEllipsoidDepth");
+  let shader = context.shaderCache.getDerivedShaderProgram(
+    source,
+    "vectorEllipsoidDepth",
+  );
   if (!defined(shader)) {
     const fragment = source.fragmentShaderSource.clone();
-    fragment.sources = fragment.sources.map((text) => ShaderSource.replaceMain(text, "czm_vector_ellipsoid_main"));
+    fragment.sources = fragment.sources.map((text) =>
+      ShaderSource.replaceMain(text, "czm_vector_ellipsoid_main"),
+    );
     fragment.sources.push(`
 uniform vec3 u_vectorEllipsoidEye;
 uniform float u_vectorEllipsoidEyeC;
@@ -57,15 +68,26 @@ void main() {
     // depths towards the viewer: that would introduce new coplanar precision artifacts.
     gl_FragDepth = max(nativeDepth, gl_FragDepth);
 }`);
-    shader = context.shaderCache.createDerivedShaderProgram(source, "vectorEllipsoidDepth", {
-      vertexShaderSource: source.vertexShaderSource, fragmentShaderSource: fragment, attributeLocations: source._attributeLocations,
-    });
+    shader = context.shaderCache.createDerivedShaderProgram(
+      source,
+      "vectorEllipsoidDepth",
+      {
+        vertexShaderSource: source.vertexShaderSource,
+        fragmentShaderSource: fragment,
+        attributeLocations: source._attributeLocations,
+      },
+    );
   }
   result.command = DrawCommand.shallowClone(command, result.command);
-  result.eye = Cartesian3.multiplyComponents(cameraPosition, ellipsoid.oneOverRadii, result.eye ?? new Cartesian3());
+  result.eye = Cartesian3.multiplyComponents(
+    cameraPosition,
+    ellipsoid.oneOverRadii,
+    result.eye ?? new Cartesian3(),
+  );
   result.eyeC = Cartesian3.dot(result.eye, result.eye) - 1;
   result.command.shaderProgram = shader;
-  result.command.uniformMap = {...command.uniformMap,
+  result.command.uniformMap = {
+    ...command.uniformMap,
     u_vectorEllipsoidEye: () => result.eye,
     u_vectorEllipsoidEyeC: () => result.eyeC,
   };
@@ -82,21 +104,35 @@ DerivedCommand.createVectorDepthCommand = function (command, context, result) {
   result = result ?? {};
   const previous = result.command?.shaderProgram;
   result.command = DrawCommand.shallowClone(command, result.command);
-  if (defined(previous) && result.shaderProgramId === command.shaderProgram.id) {
+  if (
+    defined(previous) &&
+    result.shaderProgramId === command.shaderProgram.id
+  ) {
     result.command.shaderProgram = previous;
     return result;
   }
   const source = command.shaderProgram;
-  let shader = context.shaderCache.getDerivedShaderProgram(source, "vectorPixelDepth");
+  let shader = context.shaderCache.getDerivedShaderProgram(
+    source,
+    "vectorPixelDepth",
+  );
   if (!defined(shader)) {
     const fragment = source.fragmentShaderSource.clone();
-    fragment.sources = fragment.sources.map((text) => ShaderSource.replaceMain(text, "czm_vector_depth_main"));
-    fragment.sources.push("void main() { gl_FragDepth = gl_FragCoord.z; czm_vector_depth_main(); }");
-    shader = context.shaderCache.createDerivedShaderProgram(source, "vectorPixelDepth", {
-      vertexShaderSource: source.vertexShaderSource,
-      fragmentShaderSource: fragment,
-      attributeLocations: source._attributeLocations,
-    });
+    fragment.sources = fragment.sources.map((text) =>
+      ShaderSource.replaceMain(text, "czm_vector_depth_main"),
+    );
+    fragment.sources.push(
+      "void main() { gl_FragDepth = gl_FragCoord.z; czm_vector_depth_main(); }",
+    );
+    shader = context.shaderCache.createDerivedShaderProgram(
+      source,
+      "vectorPixelDepth",
+      {
+        vertexShaderSource: source.vertexShaderSource,
+        fragmentShaderSource: fragment,
+        attributeLocations: source._attributeLocations,
+      },
+    );
   }
   result.command.shaderProgram = shader;
   result.shaderProgramId = source.id;

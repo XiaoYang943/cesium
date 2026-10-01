@@ -2366,24 +2366,42 @@ function executeCommand(command, scene, passState, debugFramebuffer) {
     command = command.derivedCommands.shadows.receiveCommand;
   }
   if (
-    scene.msaaSamples > 1 && command.pass === Pass.GLOBE && command.renderState?.depthMask &&
-    frameState.mode === SceneMode.SCENE3D && !scene.cameraUnderground &&
-    (scene.camera.frustum instanceof PerspectiveFrustum || scene.camera.frustum instanceof PerspectiveOffCenterFrustum) &&
+    scene.msaaSamples > 1 &&
+    command.pass === Pass.GLOBE &&
+    command.renderState?.depthMask &&
+    frameState.mode === SceneMode.SCENE3D &&
+    !scene.cameraUnderground &&
+    (scene.camera.frustum instanceof PerspectiveFrustum ||
+      scene.camera.frustum instanceof PerspectiveOffCenterFrustum) &&
     scene.globe?.terrainProvider?.constructor === EllipsoidTerrainProvider &&
-    frameState.vectorRenderStages.some((stage) => stage.ellipsoidDepthCorrection === true)
+    frameState.vectorRenderStages.some(
+      (stage) => stage.ellipsoidDepthCorrection === true,
+    )
   ) {
-    command.derivedCommands.vectorEllipsoidDepth = DerivedCommand.createVectorEllipsoidDepthCommand(
-      command, context, scene.globe.ellipsoid, frameState.camera.positionWC, command.derivedCommands.vectorEllipsoidDepth,
-    );
+    command.derivedCommands.vectorEllipsoidDepth =
+      DerivedCommand.createVectorEllipsoidDepthCommand(
+        command,
+        context,
+        scene.globe.ellipsoid,
+        frameState.camera.positionWC,
+        command.derivedCommands.vectorEllipsoidDepth,
+      );
     command = command.derivedCommands.vectorEllipsoidDepth.command;
   } else if (
-    !frameState.useLogDepth && scene.msaaSamples > 1 &&
-    frameState.vectorRenderStages.length > 0 && command.renderState?.depthMask &&
-    (command.pass === Pass.GLOBE || command.pass === Pass.CESIUM_3D_TILE || command.pass === Pass.OPAQUE)
+    !frameState.useLogDepth &&
+    scene.msaaSamples > 1 &&
+    frameState.vectorRenderStages.length > 0 &&
+    command.renderState?.depthMask &&
+    (command.pass === Pass.GLOBE ||
+      command.pass === Pass.CESIUM_3D_TILE ||
+      command.pass === Pass.OPAQUE)
   ) {
-    command.derivedCommands.vectorDepth = DerivedCommand.createVectorDepthCommand(
-      command, context, command.derivedCommands.vectorDepth,
-    );
+    command.derivedCommands.vectorDepth =
+      DerivedCommand.createVectorDepthCommand(
+        command,
+        context,
+        command.derivedCommands.vectorDepth,
+      );
     command = command.derivedCommands.vectorDepth.command;
   }
   command.execute(context, passState);
@@ -2908,10 +2926,20 @@ function executeCommands(scene, passState) {
 
     if (useGlobeDepthFramebuffer) {
       globeDepth.executeCopyDepth(context, passState);
-      if (frameState.passes.render && !frameState.passes.pick && !frameState.passes.depth) {
+      if (
+        frameState.passes.render &&
+        !frameState.passes.pick &&
+        !frameState.passes.depth
+      ) {
         for (const stage of frameState.vectorRenderStages) {
-          stage.captureTerrainDepth?.(context, passState, uniformState.globeDepthTexture,
-            frustum.near, frustum.far, frameState);
+          stage.captureTerrainDepth?.(
+            context,
+            passState,
+            uniformState.globeDepthTexture,
+            frustum.near,
+            frustum.far,
+            frameState,
+          );
         }
       }
     }
@@ -3119,12 +3147,22 @@ function executeCommands(scene, passState) {
       uniformState.updateFrustum(frustum);
     }
 
-    if (frameState.passes.render && !frameState.passes.pick && !frameState.passes.depth) {
+    if (
+      frameState.passes.render &&
+      !frameState.passes.pick &&
+      !frameState.passes.depth
+    ) {
       for (const stage of frameState.vectorRenderStages) {
-        stage.execute(context, passState, frameState, function (command) {
-          scene.updateDerivedCommands(command);
-          executeCommand(command, scene, passState);
-        }, frustumCommands);
+        stage.execute(
+          context,
+          passState,
+          frameState,
+          function (command) {
+            scene.updateDerivedCommands(command);
+            executeCommand(command, scene, passState);
+          },
+          frustumCommands,
+        );
       }
     }
 
