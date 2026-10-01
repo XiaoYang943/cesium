@@ -14,6 +14,7 @@ import defined from "../Core/defined.js";
 import destroyObject from "../Core/destroyObject.js";
 import DeveloperError from "../Core/DeveloperError.js";
 import Ellipsoid from "../Core/Ellipsoid.js";
+import EllipsoidTerrainProvider from "../Core/EllipsoidTerrainProvider.js";
 import EllipsoidGeometry from "../Core/EllipsoidGeometry.js";
 import Event from "../Core/Event.js";
 import GeographicProjection from "../Core/GeographicProjection.js";
@@ -2040,6 +2041,7 @@ Scene.prototype.updateFrameState = function () {
 
   const frameState = this._frameState;
   frameState.commandList.length = 0;
+  frameState.vectorRenderStages.length = 0;
   frameState.shadowMaps.length = 0;
   frameState.brdfLutGenerator = this._brdfLutGenerator;
   frameState.environmentMap = this.skyBox && this.skyBox._cubeMap;
@@ -2361,10 +2363,30 @@ function executeCommand(command, scene, passState, debugFramebuffer) {
     // If the command receives shadows, execute the derived shadows command.
     // Some commands, such as OIT derived commands, do not have derived shadow commands themselves
     // and instead shadowing is built-in. In this case execute the command regularly below.
-    command.derivedCommands.shadows.receiveCommand.execute(context, passState);
-  } else {
-    command.execute(context, passState);
+    command = command.derivedCommands.shadows.receiveCommand;
   }
+  if (
+    scene.msaaSamples > 1 && command.pass === Pass.GLOBE && command.renderState?.depthMask &&
+    frameState.mode === SceneMode.SCENE3D && !scene.cameraUnderground &&
+    (scene.camera.frustum instanceof PerspectiveFrustum || scene.camera.frustum instanceof PerspectiveOffCenterFrustum) &&
+    scene.globe?.terrainProvider?.constructor === EllipsoidTerrainProvider &&
+    frameState.vectorRenderStages.some((stage) => stage.ellipsoidDepthCorrection === true)
+  ) {
+    command.derivedCommands.vectorEllipsoidDepth = DerivedCommand.createVectorEllipsoidDepthCommand(
+      command, context, scene.globe.ellipsoid, frameState.camera.positionWC, command.derivedCommands.vectorEllipsoidDepth,
+    );
+    command = command.derivedCommands.vectorEllipsoidDepth.command;
+  } else if (
+    !frameState.useLogDepth && scene.msaaSamples > 1 &&
+    frameState.vectorRenderStages.length > 0 && command.renderState?.depthMask &&
+    (command.pass === Pass.GLOBE || command.pass === Pass.CESIUM_3D_TILE || command.pass === Pass.OPAQUE)
+  ) {
+    command.derivedCommands.vectorDepth = DerivedCommand.createVectorDepthCommand(
+      command, context, command.derivedCommands.vectorDepth,
+    );
+    command = command.derivedCommands.vectorDepth.command;
+  }
+  command.execute(context, passState);
 }
 
 /**
@@ -2886,6 +2908,12 @@ function executeCommands(scene, passState) {
 
     if (useGlobeDepthFramebuffer) {
       globeDepth.executeCopyDepth(context, passState);
+      if (frameState.passes.render && !frameState.passes.pick && !frameState.passes.depth) {
+        for (const stage of frameState.vectorRenderStages) {
+          stage.captureTerrainDepth?.(context, passState, uniformState.globeDepthTexture,
+            frustum.near, frustum.far, frameState);
+        }
+      }
     }
 
     // Draw terrain classification
@@ -3089,6 +3117,15 @@ function executeCommands(scene, passState) {
       // Do not overlap frustums in the translucent pass to avoid blending artifacts
       frustum.near = frustumCommands.near;
       uniformState.updateFrustum(frustum);
+    }
+
+    if (frameState.passes.render && !frameState.passes.pick && !frameState.passes.depth) {
+      for (const stage of frameState.vectorRenderStages) {
+        stage.execute(context, passState, frameState, function (command) {
+          scene.updateDerivedCommands(command);
+          executeCommand(command, scene, passState);
+        }, frustumCommands);
+      }
     }
 
     performTranslucentPass(scene, passState, frustumCommands);
@@ -3643,6 +3680,7 @@ function executeCommandsInViewport(firstViewport, scene, passState) {
 
   if (!firstViewport) {
     scene.frameState.commandList.length = 0;
+    scene.frameState.vectorRenderStages.length = 0;
   }
 
   updateAndRenderPrimitives(scene);
@@ -3955,6 +3993,9 @@ function updateAndRenderPrimitives(scene) {
 
   if (scene._globe) {
     scene._globe.render(frameState);
+  }
+  for (const stage of frameState.vectorRenderStages) {
+    stage.prepareTerrain?.(frameState);
   }
 }
 

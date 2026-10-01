@@ -1,5 +1,6 @@
 import { MetadataComponentType } from "@cesium/engine";
 import defined from "../Core/defined.js";
+import Cartesian3 from "../Core/Cartesian3.js";
 import DrawCommand from "../Renderer/DrawCommand.js";
 import RenderState from "../Renderer/RenderState.js";
 import ShaderSource from "../Renderer/ShaderSource.js";
@@ -13,6 +14,94 @@ function DerivedCommand() {}
 
 const fragDepthRegex = /\bgl_FragDepth\b/;
 const discardRegex = /\bdiscard\b/;
+
+/**
+ * Flat ellipsoid only. MSAA skirt triangles can cover a sample while the pixel centre
+ * lies outside their narrow geometry. Extrapolated skirt depth then incorrectly hides
+ * analytic vectors. Clamp only spuriously foreground depth to the ellipsoid, keeping skirts/color and
+ * all model/terrain depth tests intact. Scene must exclude real terrain providers.
+ */
+DerivedCommand.createVectorEllipsoidDepthCommand = function (command, context, ellipsoid, cameraPosition, result) {
+  result = result ?? {};
+  const source = command.shaderProgram;
+  let shader = context.shaderCache.getDerivedShaderProgram(source, "vectorEllipsoidDepth");
+  if (!defined(shader)) {
+    const fragment = source.fragmentShaderSource.clone();
+    fragment.sources = fragment.sources.map((text) => ShaderSource.replaceMain(text, "czm_vector_ellipsoid_main"));
+    fragment.sources.push(`
+uniform vec3 u_vectorEllipsoidEye;
+uniform float u_vectorEllipsoidEyeC;
+void main() {
+    gl_FragDepth = gl_FragCoord.z;
+    czm_vector_ellipsoid_main();
+    float nativeDepth = gl_FragDepth;
+    vec2 ndc = (gl_FragCoord.xy - czm_viewport.xy) / czm_viewport.zw * 2.0 - 1.0;
+    vec4 eye = czm_inverseProjection * vec4(ndc, -1.0, 1.0);
+    vec3 rayEC = normalize(eye.xyz / eye.w);
+    vec3 ray = czm_inverseViewRotation * rayEC * czm_ellipsoidInverseRadii * czm_ellipsoidRadii.x;
+    float a = dot(ray, ray);
+    float b = dot(u_vectorEllipsoidEye, ray);
+    vec3 closest = u_vectorEllipsoidEye - b / a * ray;
+    float discriminant = a * (1.0 - dot(closest, closest));
+    if (discriminant < 0.0 || b >= 0.0 || u_vectorEllipsoidEyeC <= 0.0) discard;
+    float distance = u_vectorEllipsoidEyeC / (-b + sqrt(discriminant)) * czm_ellipsoidRadii.x;
+    float depth = -rayEC.z * distance;
+    if (depth < czm_currentFrustum.x || depth >= czm_currentFrustum.y) return;
+#ifdef LOG_DEPTH
+    czm_writeLogDepth(depth - czm_currentFrustum.x + 1.0);
+#else
+    float near = czm_currentFrustum.x, far = czm_currentFrustum.y;
+    gl_FragDepth = far * (1.0 - near / depth) / (far - near);
+#endif
+    // Interior mesh chords legitimately lie below the ellipsoid. Do not move those
+    // depths towards the viewer: that would introduce new coplanar precision artifacts.
+    gl_FragDepth = max(nativeDepth, gl_FragDepth);
+}`);
+    shader = context.shaderCache.createDerivedShaderProgram(source, "vectorEllipsoidDepth", {
+      vertexShaderSource: source.vertexShaderSource, fragmentShaderSource: fragment, attributeLocations: source._attributeLocations,
+    });
+  }
+  result.command = DrawCommand.shallowClone(command, result.command);
+  result.eye = Cartesian3.multiplyComponents(cameraPosition, ellipsoid.oneOverRadii, result.eye ?? new Cartesian3());
+  result.eyeC = Cartesian3.dot(result.eye, result.eye) - 1;
+  result.command.shaderProgram = shader;
+  result.command.uniformMap = {...command.uniformMap,
+    u_vectorEllipsoidEye: () => result.eye,
+    u_vectorEllipsoidEyeC: () => result.eyeC,
+  };
+  return result;
+};
+
+/**
+ * Aligns fixed-function opaque depth with pixel-centred analytic vector depth in MSAA targets.
+ * Initializing before the original main preserves any custom depth/discard written by that shader.
+ * This variant is only used by scenes with an active ordered vector stage and linear depth.
+ * Explicit depth may inhibit early-Z, so logarithmic and vector-free scenes keep their usual path.
+ */
+DerivedCommand.createVectorDepthCommand = function (command, context, result) {
+  result = result ?? {};
+  const previous = result.command?.shaderProgram;
+  result.command = DrawCommand.shallowClone(command, result.command);
+  if (defined(previous) && result.shaderProgramId === command.shaderProgram.id) {
+    result.command.shaderProgram = previous;
+    return result;
+  }
+  const source = command.shaderProgram;
+  let shader = context.shaderCache.getDerivedShaderProgram(source, "vectorPixelDepth");
+  if (!defined(shader)) {
+    const fragment = source.fragmentShaderSource.clone();
+    fragment.sources = fragment.sources.map((text) => ShaderSource.replaceMain(text, "czm_vector_depth_main"));
+    fragment.sources.push("void main() { gl_FragDepth = gl_FragCoord.z; czm_vector_depth_main(); }");
+    shader = context.shaderCache.createDerivedShaderProgram(source, "vectorPixelDepth", {
+      vertexShaderSource: source.vertexShaderSource,
+      fragmentShaderSource: fragment,
+      attributeLocations: source._attributeLocations,
+    });
+  }
+  result.command.shaderProgram = shader;
+  result.shaderProgramId = source.id;
+  return result;
+};
 
 function getDepthOnlyShaderProgram(context, shaderProgram) {
   const cachedShader = context.shaderCache.getDerivedShaderProgram(

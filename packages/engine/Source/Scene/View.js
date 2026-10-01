@@ -409,6 +409,25 @@ View.prototype.createPotentiallyVisibleSet = function (scene) {
     shadowState.closestObjectSize = shadowClosestObjectSize;
   }
 
+  // Ordered vector commands affect depth-range fitting, but never enter the
+  // ordinary opaque/translucent bins (which would reorder or duplicate them).
+  if (frameState.passes.render && !frameState.passes.pick && !frameState.passes.depth) {
+    for (const stage of frameState.vectorRenderStages) {
+      stage.forEachCommand(function (command) {
+        if (!scene.isVisible(cullingVolume, command, occluder)) {
+          return;
+        }
+        const interval = command.boundingVolume.computePlaneDistances(
+          positionWC,
+          directionWC,
+          scratchNearFarInterval,
+        );
+        near = Math.min(near, interval.start);
+        far = Math.max(far, interval.stop);
+      });
+    }
+  }
+
   updateFrustums(this, scene, near, far);
 
   for (let c = 0; c < commandExtentCount; c++) {

@@ -30,6 +30,15 @@ import ShadowMode from "./ShadowMode.js";
 import CesiumMath from "../Core/Math.js";
 import VectorProvider from "../Core/VectorProvider.js";
 
+const vectorTerrainIdentities = new WeakMap();
+let nextVectorTerrainIdentity = 0;
+function vectorTerrainIdentity(value) {
+  if (!vectorTerrainIdentities.has(value)) {
+    vectorTerrainIdentities.set(value, ++nextVectorTerrainIdentity);
+  }
+  return vectorTerrainIdentities.get(value);
+}
+
 /**
  * The globe rendered in the scene, including its terrain ({@link Globe#terrainProvider})
  * and imagery layers ({@link Globe#imageryLayers}).  Access the globe using {@link Scene#globe}.
@@ -1145,4 +1154,42 @@ Globe.prototype.destroy = function () {
   this._oceanNormalMap = this._oceanNormalMap && this._oceanNormalMap.destroy();
   return destroyObject(this);
 };
+/**
+ * Read-only, versioned contract: invoke after Globe.render. Includes selected
+ * ancestors/fill meshes, excludes skirts. Never mutate or transfer borrowed buffers.
+ * @private
+ */
+Globe.prototype.getVectorTerrainSurfaceSnapshot = function (frameState) {
+  const provider = vectorTerrainIdentity(this.terrainProvider);
+  const meshes = [];
+  for (const tile of this._surface._tilesToRender) {
+    const mesh = tile.data?.renderedMesh;
+    if (!defined(mesh)) continue;
+    const encoding = mesh.encoding;
+    const exaggeration = encoding.exaggeration;
+    const relativeHeight = encoding.exaggerationRelativeHeight;
+    const rectangle = tile.rectangle;
+    const degrees = 180.0 / Math.PI;
+    const sphere = mesh.boundingSphere3D;
+    meshes.push({
+      key: `${provider}/${vectorTerrainIdentity(mesh)}/${vectorTerrainIdentity(mesh.vertices)}/${exaggeration}/${relativeHeight}`,
+      level: tile.level, kind: tile.data.vertexArray ? "terrain" : "fill",
+      bounds: [rectangle.west * degrees, rectangle.south * degrees,
+        rectangle.east * degrees, rectangle.north * degrees],
+      minimumHeight: (mesh.minimumHeight - relativeHeight) * exaggeration + relativeHeight,
+      maximumHeight: (mesh.maximumHeight - relativeHeight) * exaggeration + relativeHeight,
+      sphere: [sphere.center.x, sphere.center.y, sphere.center.z, sphere.radius +
+        Math.max(Math.abs((mesh.minimumHeight - relativeHeight) * (exaggeration - 1)),
+          Math.abs((mesh.maximumHeight - relativeHeight) * (exaggeration - 1)))],
+      vertexCount: mesh.vertexCountWithoutSkirts ?? mesh.vertices.length / encoding.stride,
+      indexCount: mesh.indexCountWithoutSkirts ?? mesh.indices.length, indices: mesh.indices,
+      position: (index, result) => encoding.getExaggeratedPosition(mesh.vertices, index, result),
+      coordinate: (index, result) => encoding.decodeTextureCoordinates(mesh.vertices, index, result),
+    });
+  }
+  return {version: 1, frame: frameState.frameNumber, provider,
+    exaggeration: frameState.verticalExaggeration,
+    relativeHeight: frameState.verticalExaggerationRelativeHeight, meshes};
+};
+
 export default Globe;

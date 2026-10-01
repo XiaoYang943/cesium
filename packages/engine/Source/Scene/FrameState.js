@@ -29,6 +29,13 @@ function FrameState(context, creditDisplay, jobScheduler) {
   this.commandList = [];
 
   /**
+   * Ordered vector stages for the current viewport. Experimental GeoStudio bridge.
+   * A stage executes after opaque geometry, with the current non-overlapping frustum.
+   * @private
+   */
+  this.vectorRenderStages = [];
+
+  /**
    * An array of panorama rendering commands.
    *
    * @type {DrawCommand[]}
